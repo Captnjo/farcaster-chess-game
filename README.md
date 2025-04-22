@@ -22,7 +22,7 @@ A multiplayer chess game built for the Farcaster social network. Players can cre
 
 1. Clone the repository:
 ```bash
-git clone [repository-url]
+git clone git@github.com:Captnjo/farcaster-chess-game.git
 cd farcaster-chess-app
 ```
 

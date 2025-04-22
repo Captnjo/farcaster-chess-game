@@ -168,14 +168,14 @@ export async function getGameMoves(gameId) {
  * @returns {Promise<{games: array, error: string|null}>} The games and any error
  */
 export async function getAvailableGames() {
-  const oneHourAgo = new Date();
-  oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+  const tenMinutesAgo = new Date();
+  tenMinutesAgo.setMinutes(tenMinutesAgo.getMinutes() - 10);
 
   const { data, error } = await supabase
     .from('games')
     .select('*')
     .eq('status', 'waiting')
-    .gte('created_at', oneHourAgo.toISOString())
+    .gte('created_at', tenMinutesAgo.toISOString())
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -187,18 +187,18 @@ export async function getAvailableGames() {
 }
 
 /**
- * Cleans up abandoned games (waiting games older than 24 hours)
+ * Cleans up abandoned games (waiting games older than 10 minutes)
  * @returns {Promise<{deleted: number, error: string|null}>} Number of deleted games and any error
  */
 export async function cleanupAbandonedGames() {
-  const oneDayAgo = new Date();
-  oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+  const tenMinutesAgo = new Date();
+  tenMinutesAgo.setMinutes(tenMinutesAgo.getMinutes() - 10);
 
   const { data, error } = await supabase
     .from('games')
     .delete()
     .eq('status', 'waiting')
-    .lt('created_at', oneDayAgo.toISOString());
+    .lt('created_at', tenMinutesAgo.toISOString());
 
   if (error) {
     console.error('Error cleaning up abandoned games:', error);

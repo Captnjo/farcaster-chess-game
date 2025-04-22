@@ -3,6 +3,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Chess, Square } from 'chess.js';
+import { FaSync } from 'react-icons/fa';
+import { motion } from 'framer-motion';
 import AuthButton from '@/components/AuthButton';
 import ChessboardComponent from '@/components/ChessboardComponent';
 import GameInfoPanel from '@/components/GameInfoPanel';
@@ -53,14 +55,22 @@ export default function HomePageContent() {
   }, [searchParams, handleAuthChange]);
 
   // Fetch available games
-  useEffect(() => {
+  const fetchAvailableGames = useCallback(async () => {
     if (isConnected) {
-      fetch('http://localhost:8000/api/games')
-        .then(res => res.json())
-        .then(setAvailableGames)
-        .catch(console.error);
+      try {
+        const response = await fetch('http://localhost:8000/api/games');
+        const games = await response.json();
+        setAvailableGames(games);
+      } catch (error) {
+        console.error('Error fetching games:', error);
+        toast.error('Failed to fetch available games');
+      }
     }
   }, [isConnected]);
+
+  useEffect(() => {
+    fetchAvailableGames();
+  }, [fetchAvailableGames]);
 
   // Update local game state when server state changes
   useEffect(() => {
@@ -122,7 +132,18 @@ export default function HomePageContent() {
                   
                   {availableGames.length > 0 && (
                     <div className="space-y-2">
-                      <h2 className="text-lg font-semibold">Available Games</h2>
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-semibold">Available Games</h2>
+                        <motion.button
+                          onClick={fetchAvailableGames}
+                          className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
+                          title="Refresh games"
+                          whileTap={{ rotate: 180 }}
+                          transition={{ duration: 0.3 }}
+                        >
+                          <FaSync className="w-5 h-5" />
+                        </motion.button>
+                      </div>
                       {availableGames.map(game => (
                         <button
                           key={game.id}

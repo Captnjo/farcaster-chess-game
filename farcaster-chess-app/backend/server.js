@@ -315,7 +315,7 @@ async function resetGameHandler(ws, data) {
   });
 }
 
-// Run cleanup every hour
+// Run cleanup every minute
 setInterval(async () => {
   const { deleted, error } = await cleanupAbandonedGames();
   if (error) {
@@ -323,7 +323,7 @@ setInterval(async () => {
   } else if (deleted > 0) {
     console.log(`Cleaned up ${deleted} abandoned games`);
   }
-}, 60 * 60 * 1000); // Run every hour
+}, 60 * 1000); // Run every minute
 
 // HTTP endpoints for local testing
 app.post('/api/test-auth', (req, res) => {

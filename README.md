@@ -57,8 +57,4 @@ npm run dev
 
 - Frontend runs on port 3000
 - Backend WebSocket server runs on port 8000
-- Backend REST API runs on port 8000
-
-## License
-
-MIT 
+- Backend REST API runs on port 8000 

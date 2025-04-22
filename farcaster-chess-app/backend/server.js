@@ -2,13 +2,14 @@ import { WebSocketServer } from 'ws';
 import { Chess } from 'chess.js';
 import express from 'express';
 import cors from 'cors';
+import { createGame, joinGame, recordMove, updateGameState, getGame, getGameMoves, getAvailableGames, cleanupAbandonedGames } from './services/database.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// In-memory game storage (replace with database in production)
-const games = new Map();
+// In-memory game storage (for active games)
+const activeGames = new Map();
 const players = new Map();
 
 // Local testing bypass
@@ -39,42 +40,55 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     console.log('Client disconnected');
     // Clean up player and game data
-    for (const [gameId, game] of games.entries()) {
+    for (const [gameId, game] of activeGames.entries()) {
       if (game.players.includes(ws)) {
-        games.delete(gameId);
+        activeGames.delete(gameId);
       }
     }
   });
 });
 
-function handleMessage(ws, data) {
+async function handleMessage(ws, data) {
   switch (data.type) {
     case 'create_game':
-      createGame(ws, data);
+      await createGameHandler(ws, data);
       break;
     case 'join_game':
-      joinGame(ws, data);
+      await joinGameHandler(ws, data);
       break;
     case 'make_move':
-      makeMove(ws, data);
+      await makeMoveHandler(ws, data);
       break;
     case 'resign':
-      resignGame(ws, data);
+      await resignGameHandler(ws, data);
       break;
     case 'reset_game':
-      resetGame(ws, data);
+      await resetGameHandler(ws, data);
       break;
     default:
       console.log('Unknown message type:', data.type);
   }
 }
 
-function createGame(ws, data) {
-  const gameId = generateGameId();
+async function createGameHandler(ws, data) {
+  console.log('Received create game request:', data);
   const game = new Chess();
+  console.log('Initial FEN:', game.fen());
   
-  games.set(gameId, {
-    id: gameId,
+  const { id, error } = await createGame(game.fen(), data.playerFid || TEST_FID);
+  
+  if (error) {
+    console.error('Failed to create game in database:', error);
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Failed to create game: ' + error
+    }));
+    return;
+  }
+
+  console.log('Game created with ID:', id);
+  activeGames.set(id, {
+    id,
     game,
     players: [ws],
     whitePlayer: ws,
@@ -85,14 +99,14 @@ function createGame(ws, data) {
 
   ws.send(JSON.stringify({
     type: 'game_created',
-    gameId,
+    gameId: id,
     color: 'white',
-    fen: game.fen()  // Send initial FEN
+    fen: game.fen()
   }));
 }
 
-function joinGame(ws, data) {
-  const game = games.get(data.gameId);
+async function joinGameHandler(ws, data) {
+  const game = activeGames.get(data.gameId);
   if (!game) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -105,6 +119,15 @@ function joinGame(ws, data) {
     ws.send(JSON.stringify({
       type: 'error',
       message: 'Game is full'
+    }));
+    return;
+  }
+
+  const { error } = await joinGame(data.gameId, data.playerFid || TEST_FID);
+  if (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Failed to join game'
     }));
     return;
   }
@@ -124,8 +147,8 @@ function joinGame(ws, data) {
   });
 }
 
-function makeMove(ws, data) {
-  const game = games.get(data.gameId);
+async function makeMoveHandler(ws, data) {
+  const game = activeGames.get(data.gameId);
   if (!game) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -148,27 +171,64 @@ function makeMove(ws, data) {
   }
 
   try {
-    // Check if the king is in check before the move
-    const isInCheck = game.game.isCheck();
-
     // Log the current state before making the move
     console.log('Current FEN:', game.game.fen());
     console.log('Attempting move:', data);
 
+    // Create a temporary copy of the game to test the move
+    const tempGame = new Chess(game.game.fen());
+    const tempMove = tempGame.move({
+      from: data.from,
+      to: data.to,
+      promotion: data.promotion || 'q'
+    });
+
+    if (!tempMove) {
+      console.log('Invalid move rejected by chess.js');
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Invalid move'
+      }));
+      return;
+    }
+
+    // Record the move in the database
+    const { error: moveError } = await recordMove(
+      data.gameId,
+      data.from,
+      data.to,
+      data.playerFid || TEST_FID,
+      data.promotion
+    );
+
+    if (moveError) {
+      console.error('Error recording move:', moveError);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Failed to record move'
+      }));
+      return;
+    }
+
+    // Make the move on the real game
     const move = game.game.move({
       from: data.from,
       to: data.to,
       promotion: data.promotion || 'q'
     });
 
-    if (!move) {
-      console.log('Invalid move rejected by chess.js');
-      // If we were in check before attempting the move, show the check-specific message
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: isInCheck ? 'Must address check first' : 'Invalid move'
-      }));
-      return;
+    // Update the game state in the database
+    const status = game.game.isCheckmate() ? 'checkmate' :
+                  game.game.isDraw() ? 'draw' : 'active';
+    
+    const { error: stateError } = await updateGameState(
+      data.gameId,
+      game.game.fen(),
+      status
+    );
+
+    if (stateError) {
+      console.error('Error updating game state:', stateError);
     }
 
     // Update the game's FEN
@@ -198,8 +258,8 @@ function makeMove(ws, data) {
   }
 }
 
-function resignGame(ws, data) {
-  const game = games.get(data.gameId);
+async function resignGameHandler(ws, data) {
+  const game = activeGames.get(data.gameId);
   if (!game) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -223,11 +283,13 @@ function resignGame(ws, data) {
     reason: 'resigned'
   }));
 
-  games.delete(data.gameId);
+  // Update game status in database
+  await updateGameState(data.gameId, game.game.fen(), 'resigned');
+  activeGames.delete(data.gameId);
 }
 
-function resetGame(ws, data) {
-  const game = games.get(data.gameId);
+async function resetGameHandler(ws, data) {
+  const game = activeGames.get(data.gameId);
   if (!game) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -240,6 +302,9 @@ function resetGame(ws, data) {
   game.game = new Chess();
   game.fen = game.game.fen();
 
+  // Update game state in database
+  await updateGameState(data.gameId, game.game.fen(), 'active');
+
   // Notify both players of the reset
   game.players.forEach(player => {
     player.send(JSON.stringify({
@@ -250,9 +315,15 @@ function resetGame(ws, data) {
   });
 }
 
-function generateGameId() {
-  return Math.random().toString(36).substring(2, 8);
-}
+// Run cleanup every hour
+setInterval(async () => {
+  const { deleted, error } = await cleanupAbandonedGames();
+  if (error) {
+    console.error('Error in scheduled cleanup:', error);
+  } else if (deleted > 0) {
+    console.log(`Cleaned up ${deleted} abandoned games`);
+  }
+}, 60 * 60 * 1000); // Run every hour
 
 // HTTP endpoints for local testing
 app.post('/api/test-auth', (req, res) => {
@@ -263,11 +334,20 @@ app.post('/api/test-auth', (req, res) => {
   });
 });
 
-app.get('/api/games', (req, res) => {
-  const gameList = Array.from(games.values()).map(game => ({
-    id: game.id,
-    status: game.status,
-    players: game.players.length
-  }));
-  res.json(gameList);
+app.get('/api/games', async (req, res) => {
+  try {
+    // Clean up abandoned games before fetching available ones
+    await cleanupAbandonedGames();
+    
+    const { games, error } = await getAvailableGames();
+    
+    if (error) {
+      throw error;
+    }
+
+    res.json(games);
+  } catch (error) {
+    console.error('Error fetching games:', error);
+    res.status(500).json({ error: 'Failed to fetch games' });
+  }
 }); 

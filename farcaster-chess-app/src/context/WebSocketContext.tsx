@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
+import { ChessValidationService } from '../services/chessValidation';
 
 interface WebSocketContextType {
   ws: WebSocket | null;
@@ -38,6 +39,14 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     status: null,
     fen: null
   });
+  const [validationService, setValidationService] = useState<ChessValidationService | null>(null);
+
+  // Initialize validation service when FEN changes
+  useEffect(() => {
+    if (currentGame.fen) {
+      setValidationService(new ChessValidationService(currentGame.fen));
+    }
+  }, [currentGame.fen]);
 
   const connect = useCallback(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
@@ -140,7 +149,15 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [ws, isConnected]);
 
   const makeMove = useCallback((from: string, to: string, promotion?: string) => {
-    if (ws && isConnected && currentGame.id) {
+    if (ws && isConnected && currentGame.id && validationService) {
+      // Validate move before sending to server
+      const validation = validationService.validateMove(from, to, promotion);
+      
+      if (!validation.isValid) {
+        toast.error(validation.error || 'Invalid move');
+        return;
+      }
+
       ws.send(JSON.stringify({
         type: 'make_move',
         gameId: currentGame.id,
@@ -149,7 +166,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         promotion
       }));
     }
-  }, [ws, isConnected, currentGame.id]);
+  }, [ws, isConnected, currentGame.id, validationService]);
 
   const resignGame = useCallback(() => {
     if (ws && isConnected && currentGame.id) {

@@ -8,12 +8,13 @@ import { motion } from 'framer-motion';
 import AuthButton from '@/components/AuthButton';
 import ChessboardComponent from '@/components/ChessboardComponent';
 import GameInfoPanel from '@/components/GameInfoPanel';
-import { useWebSocket } from '@/context/WebSocketContext';
+import { useWebSocket, GameCreationParams } from '@/context/WebSocketContext';
 import { toast } from 'react-hot-toast';
 
 type GameMode = 'classic' | 'blitz' | 'rapid';
-type OpponentType = 'ai' | 'random' | 'specific';
+type OpponentType = 'ai' | 'specific';
 type PlayerColor = 'white' | 'black';
+type AiDifficulty = 'easy' | 'medium' | 'hard';
 
 const gameModes = [
   { id: 'classic', name: 'Classic', description: 'Standard chess with no time limit' },
@@ -23,8 +24,13 @@ const gameModes = [
 
 const opponentTypes = [
   { id: 'ai', name: 'Play vs AI', description: 'Challenge our AI at different difficulty levels' },
-  { id: 'random', name: 'Random Opponent', description: 'Match with a random player' },
-  { id: 'specific', name: 'Specific Player', description: 'Challenge a specific Farcaster user' }
+  { id: 'specific', name: 'Challenge Player', description: 'Generate a link for anyone to join' }
+];
+
+const aiDifficulties = [
+  { id: 'easy', name: 'Easy' },
+  { id: 'medium', name: 'Medium' },
+  { id: 'hard', name: 'Hard' }
 ];
 
 export default function HomePageContent() {
@@ -34,19 +40,19 @@ export default function HomePageContent() {
   const [currentPosition, setCurrentPosition] = useState(game.fen());
   const [isMiniApp, setIsMiniApp] = useState<boolean>(false);
   const [isTestMode, setIsTestMode] = useState<boolean>(false);
-  const [availableGames, setAvailableGames] = useState<Array<{ id: string; status: string; players: number }>>([]);
   const [selectedMode, setSelectedMode] = useState<GameMode | null>(null);
   const [selectedOpponent, setSelectedOpponent] = useState<OpponentType | null>(null);
   const [selectedColor, setSelectedColor] = useState<PlayerColor>('white');
-  const [specificUsername, setSpecificUsername] = useState('');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<AiDifficulty>('medium');
 
   const { 
     isConnected, 
     createGame, 
-    joinGame, 
+    joinChallenge,
     makeMove: wsMakeMove,
     resetGame: wsResetGame,
-    currentGame 
+    currentGame, 
+    challengeJoinLink
   } = useWebSocket();
 
   const handleAuthChange = useCallback((fid: number | null) => {
@@ -73,24 +79,6 @@ export default function HomePageContent() {
       setIsMiniApp(true);
     }
   }, [searchParams, handleAuthChange]);
-
-  // Fetch available games
-  const fetchAvailableGames = useCallback(async () => {
-    if (isConnected) {
-      try {
-        const response = await fetch('http://localhost:8000/api/games');
-        const games = await response.json();
-        setAvailableGames(games);
-      } catch (error) {
-        console.error('Error fetching games:', error);
-        toast.error('Failed to fetch available games');
-      }
-    }
-  }, [isConnected]);
-
-  useEffect(() => {
-    fetchAvailableGames();
-  }, [fetchAvailableGames]);
 
   // Update local game state when server state changes
   useEffect(() => {
@@ -136,21 +124,25 @@ export default function HomePageContent() {
       rapid: { minutes: 10, increment: 0 }
     };
 
-    console.log('Starting game with:', {
+    const gameParams: GameCreationParams = {
       mode: selectedMode,
       opponentType: selectedOpponent,
       timeControls: timeControls[selectedMode],
-      specificUsername: selectedOpponent === 'specific' ? specificUsername : undefined,
-      preferredColor: selectedOpponent === 'ai' ? selectedColor : undefined
-    });
+      preferredColor: selectedOpponent === 'ai' ? selectedColor : undefined,
+      difficulty: selectedOpponent === 'ai' ? selectedDifficulty : undefined
+    };
 
-    await createGame({
-      mode: selectedMode,
-      opponentType: selectedOpponent,
-      timeControls: timeControls[selectedMode],
-      specificUsername: selectedOpponent === 'specific' ? specificUsername : undefined,
-      preferredColor: selectedOpponent === 'ai' ? selectedColor : undefined
-    });
+    console.log('Starting game/challenge with:', gameParams);
+    await createGame(gameParams);
+  };
+
+  // Helper to copy link
+  const handleCopyLink = () => {
+    if (challengeJoinLink) {
+      navigator.clipboard.writeText(challengeJoinLink)
+        .then(() => toast.success('Join link copied!'))
+        .catch(err => toast.error('Failed to copy link'));
+    }
   };
 
   return (
@@ -167,7 +159,7 @@ export default function HomePageContent() {
         <div className="flex flex-col gap-4 w-full max-w-[400px] items-center">
           {isConnected ? (
             <>
-              {currentGame.status === null && (
+              {currentGame.status === null && !challengeJoinLink && (
                 <div className="w-full space-y-4">
                   {/* Game Mode Selection */}
                   <div className="bg-gray-800 p-6 rounded-lg">
@@ -214,56 +206,63 @@ export default function HomePageContent() {
                       ))}
                     </div>
 
-                    {selectedOpponent === 'specific' && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mt-4"
-                      >
-                        <input
-                          type="text"
-                          placeholder="Enter Farcaster username"
-                          className="w-full p-2 rounded bg-gray-700 text-white"
-                          value={specificUsername}
-                          onChange={(e) => setSpecificUsername(e.target.value)}
-                        />
-                      </motion.div>
-                    )}
-
                     {selectedOpponent === 'ai' && (
                       <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mt-4"
+                        className="mt-4 space-y-4"
                       >
-                        <h3 className="text-lg font-medium mb-2">Choose Your Color</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            className={`p-4 rounded-lg text-center transition-colors ${
-                              selectedColor === 'white'
-                                ? 'bg-blue-600'
-                                : 'bg-gray-700 hover:bg-gray-600'
-                            }`}
-                            onClick={() => setSelectedColor('white')}
-                          >
-                            <h3 className="font-medium">White</h3>
-                            <p className="text-sm text-gray-300">Play as White</p>
-                          </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            className={`p-4 rounded-lg text-center transition-colors ${
-                              selectedColor === 'black'
-                                ? 'bg-blue-600'
-                                : 'bg-gray-700 hover:bg-gray-600'
-                            }`}
-                            onClick={() => setSelectedColor('black')}
-                          >
-                            <h3 className="font-medium">Black</h3>
-                            <p className="text-sm text-gray-300">Play as Black</p>
-                          </motion.button>
+                        <div>
+                          <h3 className="text-lg font-medium mb-2">Choose Your Color</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              className={`p-4 rounded-lg text-center transition-colors ${
+                                selectedColor === 'white'
+                                  ? 'bg-blue-600'
+                                  : 'bg-gray-700 hover:bg-gray-600'
+                              }`}
+                              onClick={() => setSelectedColor('white')}
+                            >
+                              <h3 className="font-medium">White</h3>
+                              <p className="text-sm text-gray-300">Play as White</p>
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              className={`p-4 rounded-lg text-center transition-colors ${
+                                selectedColor === 'black'
+                                  ? 'bg-blue-600'
+                                  : 'bg-gray-700 hover:bg-gray-600'
+                              }`}
+                              onClick={() => setSelectedColor('black')}
+                            >
+                              <h3 className="font-medium">Black</h3>
+                              <p className="text-sm text-gray-300">Play as Black</p>
+                            </motion.button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="text-lg font-medium mb-2">Choose AI Difficulty</h3>
+                          <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                            {aiDifficulties.map((diff) => (
+                              <motion.button
+                                key={diff.id}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                className={`p-2 sm:p-3 rounded-lg text-center transition-colors ${
+                                  selectedDifficulty === diff.id
+                                    ? 'bg-purple-600'
+                                    : 'bg-gray-700 hover:bg-gray-600'
+                                }`}
+                                onClick={() => setSelectedDifficulty(diff.id as AiDifficulty)}
+                              >
+                                <h3 className="font-medium text-sm sm:text-base">{diff.name}</h3>
+                              </motion.button>
+                            ))}
+                          </div>
                         </div>
                       </motion.div>
                     )}
@@ -286,10 +285,24 @@ export default function HomePageContent() {
                 </div>
               )}
 
-              {currentGame.status === 'waiting' && (
-                <div className="text-center">
-                  <p>Waiting for opponent to join...</p>
-                  <p>Game ID: {currentGame.id}</p>
+              {/* Show challenge link if waiting for specific opponent */}
+              {challengeJoinLink && currentGame.status === 'waiting_specific' && (
+                <div className="text-center p-4 bg-gray-800 rounded-lg space-y-3">
+                  <p className="font-semibold">Challenge created!</p>
+                  <p>Share this link with your opponent:</p>
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={challengeJoinLink} 
+                    className="w-full p-2 rounded bg-gray-700 text-white text-center break-all"
+                  />
+                  <button
+                    onClick={handleCopyLink}
+                    className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+                  >
+                    Copy Link
+                  </button>
+                  <p className="text-sm text-gray-400">(Anyone with the link can join)</p>
                 </div>
               )}
 

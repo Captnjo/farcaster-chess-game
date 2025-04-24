@@ -15,20 +15,24 @@ interface WebSocketContextType {
   currentGame: {
     id: string | null;
     color: 'white' | 'black' | null;
-    status: 'waiting' | 'active' | 'finished' | null;
+    status: 'waiting' | 'waiting_specific' | 'active' | 'finished' | null;
     fen: string | null;
+    specific_challenge?: string | null;
   };
+  joinChallenge: (gameId: string) => void;
+  challengeJoinLink: string | null;
 }
 
-interface GameCreationParams {
+// Export the interface so it can be imported elsewhere
+export interface GameCreationParams {
   mode: 'classic' | 'blitz' | 'rapid';
-  opponentType: 'ai' | 'random' | 'specific';
+  opponentType: 'ai' | 'specific';
   timeControls?: {
     minutes: number;
     increment: number;
   } | null;
-  specificUsername?: string;
   preferredColor?: 'white' | 'black';
+  difficulty?: 'easy' | 'medium' | 'hard';
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -51,6 +55,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     fen: null
   });
   const [validationService, setValidationService] = useState<ChessValidationService | null>(null);
+  const [challengeJoinLink, setChallengeJoinLink] = useState<string | null>(null);
 
   // Initialize validation service when FEN changes
   useEffect(() => {
@@ -109,17 +114,34 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
         break;
       case 'game_started':
-        console.log('[WebSocketContext] Received game_started:', data);
+        console.log(`[WebSocketContext] Received game_started for game ${data.gameId}, player color: ${data.color}`);
         const receivedFen = data.game?.fen;
+        console.log(`[WebSocketContext] FEN received: ${receivedFen}`);
+
+        if (!receivedFen) {
+          console.error('[WebSocketContext] No FEN received in game_started message!');
+          toast.error('Error starting game: Missing board state.');
+          break; // Don't proceed without FEN
+        }
+
+        console.log('[WebSocketContext] Attempting to set current game state...');
         setCurrentGame({
           id: data.gameId,
           color: data.color,
-          status: 'active',
+          status: 'active', // Setting status to active
           fen: receivedFen
         });
-        if (receivedFen) {
+        console.log('[WebSocketContext] Current game state set (status should be active).');
+
+        console.log('[WebSocketContext] Attempting to initialize validation service...');
+        try {
           setValidationService(new ChessValidationService(receivedFen));
+          console.log('[WebSocketContext] Validation service initialized.');
+        } catch (error) {
+          console.error('[WebSocketContext] Error initializing ChessValidationService:', error);
+          toast.error('Error initializing game validation.');
         }
+        setChallengeJoinLink(null);
         break;
       case 'move_made':
         setCurrentGame(prev => ({
@@ -145,6 +167,17 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           status: 'finished'
         }));
         break;
+      case 'challenge_created':
+        console.log('[WebSocketContext] Received challenge_created:', data);
+        setCurrentGame({
+          id: data.gameId,
+          color: null,
+          status: 'waiting_specific',
+          fen: null,
+          specific_challenge: null
+        });
+        setChallengeJoinLink(data.joinLink);
+        break;
       default:
         console.log('Unhandled message type:', data.type);
     }
@@ -155,19 +188,19 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       toast.error('Not connected to server');
       return;
     }
-
-    console.log('Sending create game request:', params);
+    console.log('Sending create game/challenge request:', params);
 
     const message = {
       type: 'create_game',
       mode: params.mode,
       opponentType: params.opponentType,
       timeControls: params.timeControls,
-      specificUsername: params.specificUsername,
-      preferredColor: params.preferredColor
+      preferredColor: params.preferredColor,
+      difficulty: params.difficulty
     };
 
     try {
+      setChallengeJoinLink(null);
       ws.send(JSON.stringify(message));
     } catch (error) {
       console.error('Error sending create game request:', error);
@@ -222,6 +255,16 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [ws, isConnected, currentGame.id]);
 
+  const joinChallenge = useCallback((gameId: string) => {
+    if (ws && isConnected) {
+      console.log(`Sending join_challenge for gameId: ${gameId}`);
+      ws.send(JSON.stringify({
+        type: 'join_challenge',
+        gameId
+      }));
+    }
+  }, [ws, isConnected]);
+
   return (
     <WebSocketContext.Provider value={{
       ws,
@@ -231,7 +274,9 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       makeMove,
       resignGame,
       resetGame,
-      currentGame
+      currentGame,
+      joinChallenge,
+      challengeJoinLink
     }}>
       {children}
     </WebSocketContext.Provider>

@@ -6,42 +6,50 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
- * Creates a new game in the database
- * @param {string} fen - The initial FEN string
- * @param {string} whitePlayerFid - The Farcaster ID of the white player
- * @returns {Promise<{id: string, error: string|null}>} The game ID and any error
+ * Creates a new game record in the database.
+ * Assumes gameData contains necessary fields like id, fen, white_player_fid, black_player_fid, status, mode etc.
+ * @param {object} gameData - The complete game object to insert.
+ * @returns {Promise<{id: string, error: string|null}>} The game ID and any error.
  */
-export async function createGame(fen, whitePlayerFid) {
-  console.log('Creating game with FEN:', fen, 'and white player:', whitePlayerFid);
+export async function createGame(gameData) {
+  console.log('Creating game record in DB:', gameData);
   
+  // Ensure essential fields are present
+  const { id, fen, white_player_fid, black_player_fid, status, mode, timeControls, created_at, updated_at } = gameData;
+  if (!id || !fen || !white_player_fid || !black_player_fid || !status || !mode) {
+    console.error('Missing essential fields for DB game creation:', gameData);
+    return { id: null, error: 'Missing essential fields for game creation.' };
+  }
+
   try {
+    // Use upsert to handle potential race conditions or retries if needed,
+    // although insert should be fine if ID generation is reliable.
     const { data, error } = await supabase
       .from('games')
       .insert([
         {
+          id, 
           fen,
-          white_player_fid: whitePlayerFid,
-          status: 'waiting'
+          white_player_fid,
+          black_player_fid,
+          status, 
+          created_at: created_at || new Date().toISOString(),
+          updated_at: updated_at || new Date().toISOString()
         }
       ])
       .select()
       .single();
 
     if (error) {
-      console.error('Supabase error creating game:', error);
-      console.error('Error details:', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint
-      });
+      console.error('Supabase error creating game record:', error);
       return { id: null, error: error.message };
     }
 
-    console.log('Game created successfully:', data);
-    return { id: data.id, error: null };
+    console.log('Game record created successfully in DB:', data);
+    // Return the ID from the inserted data to be sure
+    return { id: data.id, error: null }; 
   } catch (error) {
-    console.error('Unexpected error creating game:', error);
+    console.error('Unexpected error creating game record:', error);
     return { id: null, error: error.message };
   }
 }

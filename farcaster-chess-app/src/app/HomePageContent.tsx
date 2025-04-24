@@ -11,16 +11,9 @@ import GameInfoPanel from '@/components/GameInfoPanel';
 import { useWebSocket, GameCreationParams } from '@/context/WebSocketContext';
 import { toast } from 'react-hot-toast';
 
-type GameMode = 'classic' | 'blitz' | 'rapid';
 type OpponentType = 'ai' | 'specific';
 type PlayerColor = 'white' | 'black';
 type AiDifficulty = 'easy' | 'medium' | 'hard';
-
-const gameModes = [
-  { id: 'classic', name: 'Classic', description: 'Standard chess with no time limit' },
-  { id: 'blitz', name: 'Blitz', description: '5 minutes per player' },
-  { id: 'rapid', name: 'Rapid', description: '10 minutes per player' }
-];
 
 const opponentTypes = [
   { id: 'ai', name: 'Play vs AI', description: 'Challenge our AI at different difficulty levels' },
@@ -40,7 +33,6 @@ export default function HomePageContent() {
   const [currentPosition, setCurrentPosition] = useState(game.fen());
   const [isMiniApp, setIsMiniApp] = useState<boolean>(false);
   const [isTestMode, setIsTestMode] = useState<boolean>(false);
-  const [selectedMode, setSelectedMode] = useState<GameMode | null>(null);
   const [selectedOpponent, setSelectedOpponent] = useState<OpponentType | null>(null);
   const [selectedColor, setSelectedColor] = useState<PlayerColor>('white');
   const [selectedDifficulty, setSelectedDifficulty] = useState<AiDifficulty>('medium');
@@ -116,23 +108,16 @@ export default function HomePageContent() {
   };
 
   const handleStartGame = async () => {
-    if (!selectedMode || !selectedOpponent) return;
+    if (!selectedOpponent) return;
     
-    const timeControls = {
-      classic: null,
-      blitz: { minutes: 5, increment: 0 },
-      rapid: { minutes: 10, increment: 0 }
-    };
-
+    // Simplified params - mode and timeControls are handled by backend
     const gameParams: GameCreationParams = {
-      mode: selectedMode,
       opponentType: selectedOpponent,
-      timeControls: timeControls[selectedMode],
       preferredColor: selectedOpponent === 'ai' ? selectedColor : undefined,
       difficulty: selectedOpponent === 'ai' ? selectedDifficulty : undefined
     };
 
-    console.log('Starting game/challenge with:', gameParams);
+    console.log('Starting classic game/challenge with:', gameParams);
     await createGame(gameParams);
   };
 
@@ -161,30 +146,6 @@ export default function HomePageContent() {
             <>
               {currentGame.status === null && !challengeJoinLink && (
                 <div className="w-full space-y-4">
-                  {/* Game Mode Selection */}
-                  <div className="bg-gray-800 p-6 rounded-lg">
-                    <h2 className="text-2xl font-semibold mb-4">Select Game Mode</h2>
-                    <div className="grid grid-cols-1 gap-4">
-                      {gameModes.map((mode) => (
-                        <motion.button
-                          key={mode.id}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          className={`p-4 rounded-lg text-left transition-colors ${
-                            selectedMode === mode.id
-                              ? 'bg-blue-600'
-                              : 'bg-gray-700 hover:bg-gray-600'
-                          }`}
-                          onClick={() => setSelectedMode(mode.id as GameMode)}
-                        >
-                          <h3 className="font-medium">{mode.name}</h3>
-                          <p className="text-sm text-gray-300">{mode.description}</p>
-                        </motion.button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Opponent Selection */}
                   <div className="bg-gray-800 p-6 rounded-lg">
                     <h2 className="text-2xl font-semibold mb-4">Choose Opponent</h2>
                     <div className="grid grid-cols-1 gap-4">
@@ -268,19 +229,18 @@ export default function HomePageContent() {
                     )}
                   </div>
 
-                  {/* Start Game Button */}
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className={`w-full px-8 py-3 rounded-lg font-medium ${
-                      selectedMode && selectedOpponent
+                      selectedOpponent
                         ? 'bg-green-600 hover:bg-green-700'
                         : 'bg-gray-600 cursor-not-allowed'
                     }`}
                     onClick={handleStartGame}
-                    disabled={!selectedMode || !selectedOpponent || !isConnected}
+                    disabled={!selectedOpponent || !isConnected}
                   >
-                    {isConnected ? 'Start Game' : 'Connecting...'}
+                    {isConnected ? 'Start Game / Create Challenge' : 'Connecting...'}
                   </motion.button>
                 </div>
               )}

@@ -97,12 +97,9 @@ async function handleMessage(ws, data) {
   
   switch (data.type) {
     case 'create_game':
-      if (!data.mode || !data.opponentType) {
-        console.error('Missing required parameters:', data);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Missing required parameters: mode and opponentType'
-        }));
+      if (!data.opponentType) {
+        console.error('Missing required parameter: opponentType', data);
+        ws.send(JSON.stringify({ type: 'error', message: 'Missing required parameter: opponentType' }));
         return;
       }
       if (!['ai', 'specific'].includes(data.opponentType)) {
@@ -130,9 +127,13 @@ async function handleMessage(ws, data) {
 
 // Game creation handler
 async function handleCreateGame(ws, data) {
-  console.log('Received create game/challenge request:', data);
-  const { mode, opponentType, timeControls, preferredColor } = data;
+  console.log('Received create classic game/challenge request:', data);
+  const { opponentType, preferredColor, difficulty } = data;
   
+  // Hardcode mode and timeControls
+  const mode = 'classic';
+  const timeControls = null;
+
   const creatorId = ws.playerId;
   const gameId = uuidv4();
   const initialFEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -145,7 +146,7 @@ async function handleCreateGame(ws, data) {
     black_player_fid: null,
     mode,
     timeControls,
-    difficulty: opponentType === 'ai' ? (data.difficulty || 'medium') : null,
+    difficulty: difficulty || 'medium',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -187,7 +188,7 @@ async function handleCreateGame(ws, data) {
       id: gameId,
       creator_fid: creatorId,
       status: 'challenge_pending', 
-      mode, 
+      mode,
       timeControls,
       join_permission: 'any_fid',
       created_at: new Date().toISOString(),

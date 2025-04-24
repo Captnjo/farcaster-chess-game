@@ -25,12 +25,7 @@ interface WebSocketContextType {
 
 // Export the interface so it can be imported elsewhere
 export interface GameCreationParams {
-  mode: 'classic' | 'blitz' | 'rapid';
   opponentType: 'ai' | 'specific';
-  timeControls?: {
-    minutes: number;
-    increment: number;
-  } | null;
   preferredColor?: 'white' | 'black';
   difficulty?: 'easy' | 'medium' | 'hard';
 }
@@ -188,13 +183,11 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       toast.error('Not connected to server');
       return;
     }
-    console.log('Sending create game/challenge request:', params);
+    console.log('Sending create classic game/challenge request:', params);
 
     const message = {
       type: 'create_game',
-      mode: params.mode,
       opponentType: params.opponentType,
-      timeControls: params.timeControls,
       preferredColor: params.preferredColor,
       difficulty: params.difficulty
     };

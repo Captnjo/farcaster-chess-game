@@ -4,10 +4,10 @@ import { Chess, Move, Square } from 'chess.js';
  * Service for validating chess moves on the frontend
  */
 export class ChessValidationService {
-  private chess: Chess;
+  private game: Chess;
 
-  constructor(fen?: string) {
-    this.chess = new Chess(fen);
+  constructor(fen: string) {
+    this.game = new Chess(fen);
   }
 
   /**
@@ -17,32 +17,33 @@ export class ChessValidationService {
    * @param promotion - Optional promotion piece (e.g., 'q' for queen)
    * @returns Object containing validation result and error message if invalid
    */
-  validateMove(from: string, to: string, promotion?: string): { isValid: boolean; error?: string } {
+  validateMove(from: string, to: string, promotion?: string): { isValid: boolean; message?: string } {
+    // Create a temporary copy of the game to test the move
+    const tempGame = new Chess(this.game.fen());
+    
     try {
-      // Create a temporary copy of the game to test the move
-      const tempChess = new Chess(this.chess.fen());
-      
-      // Try to make the move on the temporary board
-      const move = tempChess.move({
-        from: from as Square,
-        to: to as Square,
-        promotion: promotion as 'q' | 'r' | 'b' | 'n' | undefined
+      // Attempt the move
+      const move = tempGame.move({
+        from,
+        to,
+        promotion: promotion || undefined
       });
 
       if (!move) {
-        return {
-          isValid: false,
-          error: 'Invalid move'
-        };
+        return { isValid: false, message: 'Invalid move' };
       }
 
-      // If we get here, the move is valid
+      // If the move is valid, check if it puts the opponent in check
+      if (tempGame.isCheck()) {
+        // This is a valid move that puts the opponent in check - this is allowed!
+        return { isValid: true };
+      }
+
+      // Move is valid and doesn't put anyone in check
       return { isValid: true };
     } catch (error) {
-      return {
-        isValid: false,
-        error: 'Invalid move'
-      };
+      console.error('Error validating move:', error);
+      return { isValid: false, message: 'Invalid move' };
     }
   }
 
@@ -52,7 +53,7 @@ export class ChessValidationService {
    * @returns Array of legal target squares
    */
   getLegalMoves(square: string): string[] {
-    const moves = this.chess.moves({ square: square as Square, verbose: true }) as Move[];
+    const moves = this.game.moves({ square: square as Square, verbose: true }) as Move[];
     return moves.map(move => move.to);
   }
 
@@ -61,13 +62,13 @@ export class ChessValidationService {
    * @param fen - The new FEN string
    */
   updateBoardState(fen: string): void {
-    this.chess.load(fen);
+    this.game.load(fen);
   }
 
   /**
    * Gets the current FEN string
    */
   getFen(): string {
-    return this.chess.fen();
+    return this.game.fen();
   }
 } 
